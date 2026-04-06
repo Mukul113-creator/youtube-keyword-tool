@@ -7,7 +7,6 @@ import sqlite3
 from datetime import datetime
 
 # FIX for pkg_resources error
-import pkg_resources
 
 load_dotenv()
 app = Flask(__name__)
