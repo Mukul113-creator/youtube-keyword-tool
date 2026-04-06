@@ -3,155 +3,201 @@ import googleapiclient.discovery
 import re
 import os
 from dotenv import load_dotenv
-import sqlite3
-from datetime import datetime
-
-# FIX for pkg_resources error
 
 load_dotenv()
 
 app = Flask(__name__)
 app.secret_key = 'your-secret-2024'
-API_KEY = os.getenv('YOUTUBE_API_KEY')
 
-# ========================
-# LIMIT SYSTEM
-# ========================
-GOOGLE_FREE_QUOTA = 10000
-SEARCHES_PER_QUERY = 100
-FREE_SEARCHES_DAY = GOOGLE_FREE_QUOTA // SEARCHES_PER_QUERY
+API_KEY = os.getenv("YOUTUBE_API_KEY")
 
-# ========================
-# DATABASE
-# ========================
-def init_db():
-    conn = sqlite3.connect('usage.db')
-    c = conn.cursor()
-    c.execute('''
-        CREATE TABLE IF NOT EXISTS usage 
-        (ip TEXT, date TEXT, count INTEGER DEFAULT 1)
-    ''')
-    conn.commit()
-    conn.close()
+youtube = googleapiclient.discovery.build(
+    "youtube", "v3", developerKey=API_KEY
+)
 
-init_db()
+# ----------------------------
+# 🔍 EXTRACT VIDEO ID
+# ----------------------------
+def extract_video_id(url):
+    match = re.search(r"(?:v=|\/)([0-9A-Za-z_-]{11})", url)
+    return match.group(1) if match else None
 
-def get_usage(ip):
-    conn = sqlite3.connect('usage.db')
-    c = conn.cursor()
-    today = datetime.now().strftime('%Y-%m-%d')
-    c.execute("SELECT SUM(count) FROM usage WHERE ip=? AND date=?", (ip, today))
-    usage = c.fetchone()[0] or 0
-    conn.close()
-    return int(usage)
 
-def record_usage(ip):
-    conn = sqlite3.connect('usage.db')
-    c = conn.cursor()
-    today = datetime.now().strftime('%Y-%m-%d')
-    c.execute("INSERT INTO usage (ip, date) VALUES (?, ?)", (ip, today))
-    conn.commit()
-    conn.close()
+# ----------------------------
+# 🔍 EXTRACT CHANNEL ID
+# ----------------------------
+def extract_channel_id(url):
+    match = re.search(r"channel\/([0-9A-Za-z_-]+)", url)
+    return match.group(1) if match else None
 
-# ========================
-# YOUTUBE TOOL
-# ========================
-class YouTubeTool:
-    def __init__(self, api_key):
-        self.youtube = googleapiclient.discovery.build(
-            "youtube", "v3", developerKey=api_key
-        )
 
-    def get_channel_from_video(self, video_id):
-        try:
-            res = self.youtube.videos().list(
-                part='snippet', id=video_id
-            ).execute()
-            return res['items'][0]['snippet']['channelId'] if res['items'] else None
-        except:
-            return None
+# ----------------------------
+# 🎯 GET CHANNEL ID FROM VIDEO
+# ----------------------------
+def get_channel_from_video(video_id):
+    try:
+        res = youtube.videos().list(
+            part="snippet", id=video_id
+        ).execute()
 
-    def extract_channel_id(self, url):
-        # CHANNEL URL
-        match = re.search(r'youtube\.com/channel/([A-Za-z0-9_-]+)', url)
-        if match:
-            return match.group(1)
-
-        # VIDEO URL
-        video_match = re.search(r'(?:v=|\/)([0-9A-Za-z_-]{11})', url)
-        if video_match:
-            video_id = video_match.group(1)
-            return self.get_channel_from_video(video_id)
-
+        return res["items"][0]["snippet"]["channelId"]
+    except:
         return None
 
-    def search_videos(self, channel_id, keyword):
-        try:
-            res = self.youtube.search().list(
-                part='snippet,id',
-                channelId=channel_id,
-                q=keyword,
-                type='video',
-                maxResults=20
+
+# ----------------------------
+# 📦 GET UPLOAD PLAYLIST
+# ----------------------------
+def get_uploads_playlist(channel_id):
+    res = youtube.channels().list(
+        part="contentDetails",
+        id=channel_id
+    ).execute()
+
+    return res["items"][0]["contentDetails"]["relatedPlaylists"]["uploads"]
+
+
+# ----------------------------
+# 🔍 SEARCH KEYWORD (REAL FILTER)
+# ----------------------------
+def search_keyword(channel_id, keyword):
+    keyword = keyword.lower()
+    matched_videos = []
+
+    try:
+        playlist_id = get_uploads_playlist(channel_id)
+
+        next_page = None
+
+        while True:
+            playlist_items = youtube.playlistItems().list(
+                part="snippet",
+                playlistId=playlist_id,
+                maxResults=50,
+                pageToken=next_page
             ).execute()
-            return res.get('items', [])
-        except:
-            return []
 
-tool = YouTubeTool(API_KEY)
+            video_ids = [
+                item["snippet"]["resourceId"]["videoId"]
+                for item in playlist_items["items"]
+            ]
 
-# ========================
-# ROUTES
-# ========================
-@app.route('/', methods=['GET', 'POST'])
+            videos_data = youtube.videos().list(
+                part="snippet",
+                id=",".join(video_ids)
+            ).execute()
+
+            for video in videos_data["items"]:
+                title = video["snippet"]["title"].lower()
+                desc = video["snippet"]["description"].lower()
+
+                if keyword in title or keyword in desc:
+                    matched_videos.append(video)
+
+            next_page = playlist_items.get("nextPageToken")
+            if not next_page:
+                break
+
+        return matched_videos
+
+    except Exception as e:
+        print("ERROR:", e)
+        return []
+
+
+# ----------------------------
+# 🌐 ROUTE
+# ----------------------------
+@app.route("/", methods=["GET", "POST"])
 def index():
-    ip = request.remote_addr
-    usage = get_usage(ip)
-    remaining = max(0, FREE_SEARCHES_DAY - usage)
-    quota_percent = (usage / FREE_SEARCHES_DAY) * 100
+    if request.method == "POST":
 
-    if request.method == 'POST':
+        url = request.form["url"]
+        keyword = request.form["keyword"]
 
-        if usage >= FREE_SEARCHES_DAY:
-            return f"<h2>❌ Limit reached ({FREE_SEARCHES_DAY})</h2>"
+        # detect input type
+        video_id = extract_video_id(url)
+        channel_id = extract_channel_id(url)
 
-        url = request.form['url']
-        keyword = request.form['keyword']
-
-        channel_id = tool.extract_channel_id(url)
+        if video_id:
+            channel_id = get_channel_from_video(video_id)
 
         if not channel_id:
-            return '<h2 style="color:red;">❌ Invalid URL or Channel not found</h2>'
+            return "<h2 style='color:red'>❌ Invalid YouTube URL</h2>"
 
-        videos = tool.search_videos(channel_id, keyword)
-        record_usage(ip)
+        videos = search_keyword(channel_id, keyword)
 
-        html = f"""
-        <h2>✅ Found {len(videos)} videos for keyword: {keyword}</h2>
-        <p>Usage: {usage+1}/{FREE_SEARCHES_DAY}</p>
-        <hr>
-        """
+        return render_template_string(RESULT_HTML,
+                                      videos=videos,
+                                      keyword=keyword,
+                                      count=len(videos))
 
-        for v in videos:
-            vid = v['id'].get('videoId')
-            title = v['snippet']['title']
-            html += f'<p><a href="https://youtube.com/watch?v={vid}" target="_blank">{title}</a></p>'
+    return render_template_string(INDEX_HTML)
 
-        html += '<br><a href="/">🔙 Back</a>'
-        return html
 
-    return f"""
-    <h1>🔍 YouTube Keyword Finder</h1>
-    <p>Free searches: {remaining}</p>
-    <form method="POST">
-        <input name="url" placeholder="YouTube Video or Channel URL" required><br><br>
-        <input name="keyword" placeholder="Keyword" required><br><br>
-        <button type="submit">Search</button>
-    </form>
-    """
+# ----------------------------
+# 🎨 HTML UI
+# ----------------------------
+INDEX_HTML = """
+<!DOCTYPE html>
+<html>
+<head>
+<title>YouTube Keyword Tool</title>
+<style>
+body{font-family:Arial;text-align:center;padding:50px;background:#f5f5f5;}
+input{padding:15px;width:60%;margin:10px;border-radius:10px;border:1px solid #ccc;}
+button{padding:15px 30px;background:red;color:white;border:none;border-radius:10px;}
+</style>
+</head>
+<body>
 
-# ========================
-# RUN
-# ========================
-if __name__ == '__main__':
+<h1>🔍 YouTube Keyword Finder</h1>
+
+<form method="POST">
+<input type="text" name="url" placeholder="Channel or Video URL" required><br>
+<input type="text" name="keyword" placeholder="Enter keyword" required><br>
+<button type="submit">Search</button>
+</form>
+
+</body>
+</html>
+"""
+
+RESULT_HTML = """
+<!DOCTYPE html>
+<html>
+<head>
+<title>Results</title>
+<style>
+body{font-family:Arial;padding:40px;background:#f5f5f5;}
+.video{background:white;padding:20px;margin:15px;border-radius:10px;}
+a{color:red;text-decoration:none;}
+</style>
+</head>
+<body>
+
+<h1>✅ {{ count }} Videos Found</h1>
+<h3>Keyword: "{{ keyword }}"</h3>
+
+{% for v in videos %}
+<div class="video">
+<h3>
+<a href="https://youtube.com/watch?v={{ v.id }}" target="_blank">
+{{ v.snippet.title }}
+</a>
+</h3>
+<p>{{ v.snippet.channelTitle }}</p>
+</div>
+{% endfor %}
+
+<br><a href="/">🔙 Back</a>
+
+</body>
+</html>
+"""
+
+# ----------------------------
+# 🚀 RUN
+# ----------------------------
+if __name__ == "__main__":
     app.run(debug=True)
