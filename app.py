@@ -1,10 +1,12 @@
 from flask import Flask, request, render_template_string
 import googleapiclient.discovery
 import re
+import pkg_resources
 import os
 from dotenv import load_dotenv
 import sqlite3
 from datetime import datetime
+
 
 load_dotenv()
 app = Flask(__name__)
