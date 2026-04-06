@@ -67,7 +67,7 @@ class YouTubeTool:
         except:
             return None
 
-    # 🔥 UNIVERSAL RESOLVER
+    # UNIVERSAL CHANNEL RESOLVER
     def resolve_channel(self, input_text):
         input_text = input_text.strip()
 
@@ -91,7 +91,7 @@ class YouTubeTool:
         except:
             return None
 
-    # 🔍 SEARCH VIDEOS (PAGINATION)
+    # CHANNEL-SPECIFIC SEARCH
     def search_videos(self, channel_id, keyword):
         try:
             videos = []
@@ -110,14 +110,16 @@ class YouTubeTool:
                     pageToken=next_page_token
                 ).execute()
 
-                items = res.get('items', [])
-
-                for video in items:
+                for video in res.get('items', []):
                     title = video['snippet']['title'].lower()
                     desc = video['snippet']['description'].lower()
 
                     if re.search(pattern, title) or re.search(pattern, desc):
-                        videos.append(video)
+                        videos.append({
+                            "videoId": video["id"]["videoId"],
+                            "title": video["snippet"]["title"],
+                            "channelTitle": video["snippet"]["channelTitle"]
+                        })
 
                 next_page_token = res.get('nextPageToken')
 
@@ -130,34 +132,34 @@ class YouTubeTool:
             print("ERROR:", e)
             return []
 
-    # 🆕 SEARCH CHANNELS BY KEYWORD
-    def search_channels_by_keyword(self, keyword):
+    # GLOBAL SEARCH (LIKE YOUTUBE)
+    def search_videos_global(self, keyword):
         try:
-            channels = []
+            videos = []
             next_page_token = None
 
             while True:
                 res = self.youtube.search().list(
-                    part="snippet",
+                    part="snippet,id",
                     q=keyword,
-                    type="channel",
+                    type="video",
                     maxResults=50,
                     pageToken=next_page_token
                 ).execute()
 
                 for item in res.get("items", []):
-                    channels.append({
-                        "channelId": item["snippet"]["channelId"],
+                    videos.append({
+                        "videoId": item["id"]["videoId"],
                         "title": item["snippet"]["title"],
-                        "description": item["snippet"]["description"]
+                        "channelTitle": item["snippet"]["channelTitle"]
                     })
 
                 next_page_token = res.get("nextPageToken")
 
-                if not next_page_token or len(channels) >= 100:
+                if not next_page_token or len(videos) >= 100:
                     break
 
-            return channels
+            return videos
 
         except Exception as e:
             print("ERROR:", e)
@@ -177,18 +179,18 @@ def index():
         url = request.form.get('url', '').strip()
         keyword = request.form['keyword']
 
-        # 🆕 CASE 1: Only keyword → show channels
+        # ✅ GLOBAL SEARCH (like YouTube)
         if url == "":
-            channels = tool.search_channels_by_keyword(keyword)
+            videos = tool.search_videos_global(keyword)
             record_usage(ip)
 
-            return render_template_string(CHANNELS_HTML,
-                channels=channels,
+            return render_template_string(GLOBAL_RESULTS_HTML,
+                videos=videos,
                 keyword=keyword,
-                count=len(channels)
+                count=len(videos)
             )
 
-        # ✅ CASE 2: URL + keyword → show videos
+        # ✅ CHANNEL SEARCH (old feature)
         channel_id = tool.resolve_channel(url)
 
         if not channel_id:
@@ -214,7 +216,7 @@ INDEX_HTML = '''
 
 <form method="POST">
 <input name="url" placeholder="Channel URL / @handle (optional)"><br><br>
-<input name="keyword" placeholder="Keyword" required><br><br>
+<input name="keyword" placeholder="Search keyword" required><br><br>
 <button type="submit">Search</button>
 </form>
 
@@ -222,31 +224,34 @@ INDEX_HTML = '''
 '''
 
 RESULTS_HTML = '''
-<h2>🎬 {{ count }} Videos Found</h2>
+<h2>🎬 {{ count }} Videos Found (Channel)</h2>
 <p>Keyword: <b>{{ keyword }}</b></p>
 
 {% for video in videos %}
 <div style="margin-bottom:20px;">
-<a href="https://youtube.com/watch?v={{ video.id.videoId }}" target="_blank">
-{{ video.snippet.title }}
+<a href="https://youtube.com/watch?v={{ video.videoId }}" target="_blank">
+{{ video.title }}
 </a>
+<p>📺 {{ video.channelTitle }}</p>
 </div>
 {% endfor %}
 
 <br><a href="/">🔙 Back</a>
 '''
 
-CHANNELS_HTML = '''
-<h2>📺 {{ count }} Channels Found</h2>
+GLOBAL_RESULTS_HTML = '''
+<h2>🔍 {{ count }} Videos Found (Global Search)</h2>
 <p>Keyword: <b>{{ keyword }}</b></p>
 
-{% for ch in channels %}
-<div style="margin-bottom:20px; padding:10px; border:1px solid #ccc;">
-    <h3>{{ ch.title }}</h3>
-    <p>{{ ch.description }}</p>
-    <a href="https://youtube.com/channel/{{ ch.channelId }}" target="_blank">
-        Visit Channel
+{% for video in videos %}
+<div style="margin-bottom:20px; padding:10px; border:1px solid #ddd;">
+    
+    <a href="https://youtube.com/watch?v={{ video.videoId }}" target="_blank">
+        <h3>{{ video.title }}</h3>
     </a>
+
+    <p>📺 Channel: <b>{{ video.channelTitle }}</b></p>
+
 </div>
 {% endfor %}
 
