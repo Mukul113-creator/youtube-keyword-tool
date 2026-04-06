@@ -7,7 +7,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 app = Flask(__name__)
-app.secret_key = 'your-secret-2024'
+app.secret_key = 'secret-key'
 
 API_KEY = os.getenv("YOUTUBE_API_KEY")
 
@@ -24,25 +24,34 @@ def extract_video_id(url):
 
 
 # ----------------------------
-# 🔍 EXTRACT CHANNEL ID
-# ----------------------------
-def extract_channel_id(url):
-    match = re.search(r"channel\/([0-9A-Za-z_-]+)", url)
-    return match.group(1) if match else None
-
-
-# ----------------------------
-# 🎯 GET CHANNEL ID FROM VIDEO
+# 🔍 GET CHANNEL ID FROM VIDEO
 # ----------------------------
 def get_channel_from_video(video_id):
     try:
         res = youtube.videos().list(
-            part="snippet", id=video_id
+            part="snippet",
+            id=video_id
         ).execute()
 
         return res["items"][0]["snippet"]["channelId"]
     except:
         return None
+
+
+# ----------------------------
+# 🔍 GET CHANNEL ID FROM ANY INPUT
+# ----------------------------
+def get_channel_id(url):
+    # 1. Channel URL
+    if "youtube.com/channel/" in url:
+        return url.split("channel/")[1].split("/")[0]
+
+    # 2. Video URL
+    video_id = extract_video_id(url)
+    if video_id:
+        return get_channel_from_video(video_id)
+
+    return None
 
 
 # ----------------------------
@@ -58,7 +67,7 @@ def get_uploads_playlist(channel_id):
 
 
 # ----------------------------
-# 🔍 SEARCH KEYWORD (REAL FILTER)
+# 🔥 REAL KEYWORD SEARCH
 # ----------------------------
 def search_keyword(channel_id, keyword):
     keyword = keyword.lower()
@@ -70,7 +79,7 @@ def search_keyword(channel_id, keyword):
         next_page = None
 
         while True:
-            playlist_items = youtube.playlistItems().list(
+            playlist = youtube.playlistItems().list(
                 part="snippet",
                 playlistId=playlist_id,
                 maxResults=50,
@@ -79,7 +88,7 @@ def search_keyword(channel_id, keyword):
 
             video_ids = [
                 item["snippet"]["resourceId"]["videoId"]
-                for item in playlist_items["items"]
+                for item in playlist["items"]
             ]
 
             videos_data = youtube.videos().list(
@@ -94,7 +103,8 @@ def search_keyword(channel_id, keyword):
                 if keyword in title or keyword in desc:
                     matched_videos.append(video)
 
-            next_page = playlist_items.get("nextPageToken")
+            next_page = playlist.get("nextPageToken")
+
             if not next_page:
                 break
 
@@ -115,15 +125,10 @@ def index():
         url = request.form["url"]
         keyword = request.form["keyword"]
 
-        # detect input type
-        video_id = extract_video_id(url)
-        channel_id = extract_channel_id(url)
-
-        if video_id:
-            channel_id = get_channel_from_video(video_id)
+        channel_id = get_channel_id(url)
 
         if not channel_id:
-            return "<h2 style='color:red'>❌ Invalid YouTube URL</h2>"
+            return "<h2 style='color:red;'>❌ Invalid YouTube URL</h2>"
 
         videos = search_keyword(channel_id, keyword)
 
@@ -136,7 +141,7 @@ def index():
 
 
 # ----------------------------
-# 🎨 HTML UI
+# 🎨 UI
 # ----------------------------
 INDEX_HTML = """
 <!DOCTYPE html>
