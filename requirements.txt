@@ -4,5 +4,5 @@ google-api-python-client==2.13.0
 python-dotenv==1.0.1
 requests==2.31.0
 
-# IMPORTANT FIX
-setuptools>=68.0.0
+# ✅ FIX (VERY IMPORTANT)
+setuptools==65.5.0
