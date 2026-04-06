@@ -3,4 +3,4 @@ gunicorn==21.2.0
 google-api-python-client==2.13.0
 python-dotenv==1.0.1
 requests==2.31.0
-setuptools==68.0.0
+setuptools>=70.0.0
