@@ -10,7 +10,11 @@ load_dotenv()
 app = Flask(__name__)
 app.secret_key = 'your-secret-2024'
 
-API_KEY = os.getenv('AIzaSyC7BRFy3rMbOI3H8Iokf6i--COcSu-XOaU')
+API_KEY = os.getenv('YOUTUBE_API_KEY')
+
+# ✅ IMPORTANT CHECK
+if not API_KEY:
+    raise ValueError("❌ YOUTUBE_API_KEY is missing! Add it in environment variables")
 
 # LIMITS
 GOOGLE_FREE_QUOTA = 10000
@@ -49,25 +53,26 @@ def record_usage(ip):
 class YouTubeTool:
     def __init__(self, api_key):
         self.youtube = googleapiclient.discovery.build(
-            "youtube", "v3", developerKey=api_key
+            "youtube",
+            "v3",
+            developerKey=api_key,
+            cache_discovery=False  # ✅ FIX
         )
 
-    # Extract video ID
     def extract_video_id(self, url):
         match = re.search(r'(?:v=|\/)([0-9A-Za-z_-]{11})', url)
         return match.group(1) if match else None
 
-    # Get channel from video
     def get_channel_from_video(self, video_id):
         try:
             res = self.youtube.videos().list(
                 part="snippet", id=video_id
             ).execute()
             return res['items'][0]['snippet']['channelId']
-        except:
+        except Exception as e:
+            print("ERROR:", e)
             return None
 
-    # UNIVERSAL CHANNEL RESOLVER
     def resolve_channel(self, input_text):
         input_text = input_text.strip()
 
@@ -78,7 +83,6 @@ class YouTubeTool:
         if video_id:
             return self.get_channel_from_video(video_id)
 
-        # @handle or channel name
         try:
             res = self.youtube.search().list(
                 part="snippet",
@@ -88,17 +92,15 @@ class YouTubeTool:
             ).execute()
 
             return res['items'][0]['snippet']['channelId']
-        except:
+        except Exception as e:
+            print("ERROR:", e)
             return None
 
-    # CHANNEL-SPECIFIC SEARCH
+    # ✅ CHANNEL SEARCH
     def search_videos(self, channel_id, keyword):
         try:
             videos = []
             next_page_token = None
-
-            keyword_lower = keyword.lower()
-            pattern = r'\b' + re.escape(keyword_lower) + r'\b'
 
             while True:
                 res = self.youtube.search().list(
@@ -111,15 +113,11 @@ class YouTubeTool:
                 ).execute()
 
                 for video in res.get('items', []):
-                    title = video['snippet']['title'].lower()
-                    desc = video['snippet']['description'].lower()
-
-                    if re.search(pattern, title) or re.search(pattern, desc):
-                        videos.append({
-                            "videoId": video["id"]["videoId"],
-                            "title": video["snippet"]["title"],
-                            "channelTitle": video["snippet"]["channelTitle"]
-                        })
+                    videos.append({
+                        "videoId": video["id"]["videoId"],
+                        "title": video["snippet"]["title"],
+                        "channelTitle": video["snippet"]["channelTitle"]
+                    })
 
                 next_page_token = res.get('nextPageToken')
 
@@ -132,7 +130,7 @@ class YouTubeTool:
             print("ERROR:", e)
             return []
 
-    # GLOBAL SEARCH (LIKE YOUTUBE)
+    # ✅ GLOBAL SEARCH
     def search_videos_global(self, keyword):
         try:
             videos = []
@@ -175,11 +173,13 @@ def index():
     remaining = max(0, FREE_SEARCHES_DAY - usage)
 
     if request.method == 'POST':
-
         url = request.form.get('url', '').strip()
         keyword = request.form['keyword']
 
-        # ✅ GLOBAL SEARCH (like YouTube)
+        if not keyword:
+            return "<h2>❌ Enter keyword</h2>"
+
+        # ✅ GLOBAL SEARCH
         if url == "":
             videos = tool.search_videos_global(keyword)
             record_usage(ip)
@@ -190,11 +190,11 @@ def index():
                 count=len(videos)
             )
 
-        # ✅ CHANNEL SEARCH (old feature)
+        # ✅ CHANNEL SEARCH
         channel_id = tool.resolve_channel(url)
 
         if not channel_id:
-            return '<h2 style="color:red;">❌ Invalid YouTube Input</h2>'
+            return '<h2 style="color:red;">❌ Invalid Input</h2>'
 
         videos = tool.search_videos(channel_id, keyword)
         record_usage(ip)
@@ -216,46 +216,37 @@ INDEX_HTML = '''
 
 <form method="POST">
 <input name="url" placeholder="Channel URL / @handle (optional)"><br><br>
-<input name="keyword" placeholder="Search keyword" required><br><br>
+<input name="keyword" placeholder="Keyword" required><br><br>
 <button type="submit">Search</button>
 </form>
 
-<p>Daily Usage: {{ usage }} | Remaining: {{ remaining }}</p>
+<p>Usage: {{ usage }} | Remaining: {{ remaining }}</p>
 '''
 
 RESULTS_HTML = '''
-<h2>🎬 {{ count }} Videos Found (Channel)</h2>
-<p>Keyword: <b>{{ keyword }}</b></p>
+<h2>{{ count }} Videos (Channel)</h2>
 
-{% for video in videos %}
-<div style="margin-bottom:20px;">
-<a href="https://youtube.com/watch?v={{ video.videoId }}" target="_blank">
-{{ video.title }}
-</a>
-<p>📺 {{ video.channelTitle }}</p>
+{% for v in videos %}
+<div>
+<a href="https://youtube.com/watch?v={{ v.videoId }}">{{ v.title }}</a>
+<p>{{ v.channelTitle }}</p>
 </div>
 {% endfor %}
-
-<br><a href="/">🔙 Back</a>
 '''
 
 GLOBAL_RESULTS_HTML = '''
-<h2>🔍 {{ count }} Videos Found (Global Search)</h2>
-<p>Keyword: <b>{{ keyword }}</b></p>
+<h2>{{ count }} Videos (Global)</h2>
 
-{% for video in videos %}
-<div style="margin-bottom:20px; padding:10px; border:1px solid #ddd;">
-    
-    <a href="https://youtube.com/watch?v={{ video.videoId }}" target="_blank">
-        <h3>{{ video.title }}</h3>
-    </a>
+{% if videos|length == 0 %}
+<p style="color:red;">No results or API issue</p>
+{% endif %}
 
-    <p>📺 Channel: <b>{{ video.channelTitle }}</b></p>
-
+{% for v in videos %}
+<div>
+<a href="https://youtube.com/watch?v={{ v.videoId }}">{{ v.title }}</a>
+<p>{{ v.channelTitle }}</p>
 </div>
 {% endfor %}
-
-<br><a href="/">🔙 Back</a>
 '''
 
 # ---------------- RUN ----------------
