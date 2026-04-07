@@ -8,12 +8,11 @@ import os
 app = Flask(__name__)
 app.secret_key = 'your-secret-2024'
 
-# ✅ GET API KEY FROM ENV (SAFE)
+# ✅ API from Render ENV
 API_KEY = os.getenv("API_KEY")
 
-# 🚨 Safety check (prevents crash)
 if not API_KEY:
-    print("❌ WARNING: API_KEY not found. Set it in Render Environment Variables.")
+    print("❌ API KEY NOT FOUND")
 
 # LIMITS
 GOOGLE_FREE_QUOTA = 10000
@@ -58,7 +57,7 @@ class YouTubeTool:
                     "youtube", "v3", developerKey=api_key
                 )
             except Exception as e:
-                print("❌ ERROR initializing YouTube API:", e)
+                print("ERROR INIT:", e)
 
     def is_ready(self):
         return self.youtube is not None
@@ -81,9 +80,11 @@ class YouTubeTool:
         try:
             input_text = input_text.strip()
 
+            # Channel ID
             if input_text.startswith("UC"):
                 return input_text
 
+            # Handle (@username)
             if "@" in input_text:
                 handle = input_text.split("@")[-1].split("?")[0]
                 res = self.youtube.search().list(
@@ -94,13 +95,16 @@ class YouTubeTool:
                 ).execute()
                 return res['items'][0]['snippet']['channelId']
 
+            # Channel URL
             if "youtube.com/channel/" in input_text:
                 return input_text.split("channel/")[1].split("/")[0]
 
+            # Video URL
             video_id = self.extract_video_id(input_text)
             if video_id:
                 return self.get_channel_from_video(video_id)
 
+            # Keyword → channel
             res = self.youtube.search().list(
                 part="snippet",
                 q=input_text,
@@ -113,31 +117,31 @@ class YouTubeTool:
             print("ERROR resolve:", e)
             return None
 
-    def search_videos(self, channel_id, keyword):
-        try:
-            res = self.youtube.search().list(
-                part="snippet,id",
-                channelId=channel_id,
-                q=keyword,
-                type="video",
-                maxResults=50
-            ).execute()
-            return res.get('items', [])
-        except Exception as e:
-            print("ERROR search_videos:", e)
-            return []
-
+    # 🔥 GLOBAL SEARCH (KEYWORD ONLY)
     def search_global_videos(self, keyword):
         try:
-            res = self.youtube.search().list(
-                part="snippet,id",
-                q=keyword,
-                type="video",
-                maxResults=25
-            ).execute()
-            return res.get('items', [])
+            videos = []
+            next_page_token = None
+
+            while len(videos) < 50:
+                res = self.youtube.search().list(
+                    part="snippet,id",
+                    q=keyword,
+                    type="video",
+                    maxResults=25,
+                    pageToken=next_page_token
+                ).execute()
+
+                videos.extend(res.get('items', []))
+                next_page_token = res.get("nextPageToken")
+
+                if not next_page_token:
+                    break
+
+            return videos
+
         except Exception as e:
-            print("ERROR global_videos:", e)
+            print("ERROR global:", e)
             return []
 
     def search_channels(self, keyword):
@@ -153,13 +157,30 @@ class YouTubeTool:
             for item in res.get("items", []):
                 channels.append({
                     "channelId": item["snippet"]["channelId"],
-                    "title": item["snippet"]["title"],
-                    "description": item["snippet"]["description"]
+                    "title": item["snippet"]["title"]
                 })
+
             return channels
 
         except Exception as e:
-            print("ERROR search_channels:", e)
+            print("ERROR channels:", e)
+            return []
+
+    # 🔥 CHANNEL SEARCH
+    def search_videos(self, channel_id, keyword):
+        try:
+            res = self.youtube.search().list(
+                part="snippet,id",
+                channelId=channel_id,
+                q=keyword,
+                type="video",
+                maxResults=50
+            ).execute()
+
+            return res.get('items', [])
+
+        except Exception as e:
+            print("ERROR channel videos:", e)
             return []
 
 tool = YouTubeTool(API_KEY)
@@ -174,36 +195,38 @@ def index():
     if request.method == 'POST':
 
         if not tool.is_ready():
-            return "<h2 style='color:red;'>❌ API KEY NOT SET PROPERLY</h2>"
+            return "<h2 style='color:red;'>❌ API KEY NOT SET</h2>"
 
         url = request.form.get('url', '').strip()
         keyword = request.form['keyword']
 
+        # ✅ CASE 1: ONLY KEYWORD
         if url == "":
-            channels = tool.search_channels(keyword)
             videos = tool.search_global_videos(keyword)
+            channels = tool.search_channels(keyword)
             record_usage(ip)
 
             return render_template_string(GLOBAL_HTML,
-                channels=channels,
                 videos=videos,
-                keyword=keyword,
+                channels=channels,
                 vcount=len(videos),
-                ccount=len(channels)
+                ccount=len(channels),
+                keyword=keyword
             )
 
+        # ✅ CASE 2: CHANNEL + KEYWORD
         channel_id = tool.resolve_channel(url)
 
         if not channel_id:
-            return '<h2 style="color:red;">❌ Invalid YouTube Input</h2>'
+            return "<h2 style='color:red;'>❌ Invalid Input</h2>"
 
         videos = tool.search_videos(channel_id, keyword)
         record_usage(ip)
 
-        return render_template_string(RESULTS_HTML,
+        return render_template_string(RESULT_HTML,
             videos=videos,
-            keyword=keyword,
-            count=len(videos)
+            count=len(videos),
+            keyword=keyword
         )
 
     return render_template_string(INDEX_HTML,
@@ -221,26 +244,23 @@ INDEX_HTML = '''
 <button type="submit">Search</button>
 </form>
 
-<p>Daily Usage: {{ usage }} | Remaining: {{ remaining }}</p>
-'''
-
-RESULTS_HTML = '''
-<h2>🎬 {{ count }} Videos Found</h2>
-<p>Keyword: <b>{{ keyword }}</b></p>
-
-{% for video in videos %}
-<div>
-<a href="https://youtube.com/watch?v={{ video.id.videoId }}" target="_blank">
-{{ video.snippet.title }}
-</a>
-</div>
-{% endfor %}
-
-<br><a href="/">Back</a>
+<p>Usage: {{ usage }} | Remaining: {{ remaining }}</p>
 '''
 
 GLOBAL_HTML = '''
-<h2>🌍 Global Search Results</h2>
+<h2>🌍 Results for "{{ keyword }}"</h2>
+
+<h3>🎬 Videos Found: {{ vcount }}</h3>
+{% for v in videos %}
+<div>
+<a href="https://youtube.com/watch?v={{ v.id.videoId }}" target="_blank">
+<b>{{ v.snippet.title }}</b>
+</a><br>
+📺 {{ v.snippet.channelTitle }}
+</div><br>
+{% endfor %}
+
+<hr>
 
 <h3>📺 Channels ({{ ccount }})</h3>
 {% for ch in channels %}
@@ -250,15 +270,20 @@ GLOBAL_HTML = '''
 </div>
 {% endfor %}
 
-<hr>
+<br><a href="/">Back</a>
+'''
 
-<h3>🎬 Videos ({{ vcount }})</h3>
+RESULT_HTML = '''
+<h2>📊 Channel Results</h2>
+<h3>🎬 Videos Found: {{ count }}</h3>
+<p>Keyword: <b>{{ keyword }}</b></p>
+
 {% for v in videos %}
 <div>
 <a href="https://youtube.com/watch?v={{ v.id.videoId }}" target="_blank">
-{{ v.snippet.title }}
+<b>{{ v.snippet.title }}</b>
 </a>
-</div>
+</div><br>
 {% endfor %}
 
 <br><a href="/">Back</a>
