@@ -8,8 +8,12 @@ import os
 app = Flask(__name__)
 app.secret_key = 'your-secret-2024'
 
-# ✅ GET API KEY FROM RENDER ENV
+# ✅ GET API KEY FROM ENV (SAFE)
 API_KEY = os.getenv("API_KEY")
+
+# 🚨 Safety check (prevents crash)
+if not API_KEY:
+    print("❌ WARNING: API_KEY not found. Set it in Render Environment Variables.")
 
 # LIMITS
 GOOGLE_FREE_QUOTA = 10000
@@ -47,9 +51,17 @@ def record_usage(ip):
 # ---------------- YOUTUBE TOOL ----------------
 class YouTubeTool:
     def __init__(self, api_key):
-        self.youtube = googleapiclient.discovery.build(
-            "youtube", "v3", developerKey=api_key
-        )
+        self.youtube = None
+        if api_key:
+            try:
+                self.youtube = googleapiclient.discovery.build(
+                    "youtube", "v3", developerKey=api_key
+                )
+            except Exception as e:
+                print("❌ ERROR initializing YouTube API:", e)
+
+    def is_ready(self):
+        return self.youtube is not None
 
     def extract_video_id(self, url):
         match = re.search(r'(?:v=|\/)([0-9A-Za-z_-]{11})', url)
@@ -62,19 +74,17 @@ class YouTubeTool:
             ).execute()
             return res['items'][0]['snippet']['channelId']
         except Exception as e:
-            print("ERROR get_channel_from_video:", e)
+            print("ERROR get_channel:", e)
             return None
 
     def resolve_channel(self, input_text):
-        input_text = input_text.strip()
+        try:
+            input_text = input_text.strip()
 
-        # Channel ID
-        if input_text.startswith("UC"):
-            return input_text
+            if input_text.startswith("UC"):
+                return input_text
 
-        # Handle (@username)
-        if "@" in input_text:
-            try:
+            if "@" in input_text:
                 handle = input_text.split("@")[-1].split("?")[0]
                 res = self.youtube.search().list(
                     part="snippet",
@@ -83,21 +93,14 @@ class YouTubeTool:
                     maxResults=1
                 ).execute()
                 return res['items'][0]['snippet']['channelId']
-            except Exception as e:
-                print("ERROR handle:", e)
-                return None
 
-        # Channel URL
-        if "youtube.com/channel/" in input_text:
-            return input_text.split("channel/")[1].split("/")[0]
+            if "youtube.com/channel/" in input_text:
+                return input_text.split("channel/")[1].split("/")[0]
 
-        # Video URL
-        video_id = self.extract_video_id(input_text)
-        if video_id:
-            return self.get_channel_from_video(video_id)
+            video_id = self.extract_video_id(input_text)
+            if video_id:
+                return self.get_channel_from_video(video_id)
 
-        # Keyword → channel
-        try:
             res = self.youtube.search().list(
                 part="snippet",
                 q=input_text,
@@ -105,8 +108,9 @@ class YouTubeTool:
                 maxResults=1
             ).execute()
             return res['items'][0]['snippet']['channelId']
+
         except Exception as e:
-            print("ERROR resolve_channel:", e)
+            print("ERROR resolve:", e)
             return None
 
     def search_videos(self, channel_id, keyword):
@@ -118,7 +122,6 @@ class YouTubeTool:
                 type="video",
                 maxResults=50
             ).execute()
-
             return res.get('items', [])
         except Exception as e:
             print("ERROR search_videos:", e)
@@ -132,7 +135,6 @@ class YouTubeTool:
                 type="video",
                 maxResults=25
             ).execute()
-
             return res.get('items', [])
         except Exception as e:
             print("ERROR global_videos:", e)
@@ -154,8 +156,8 @@ class YouTubeTool:
                     "title": item["snippet"]["title"],
                     "description": item["snippet"]["description"]
                 })
-
             return channels
+
         except Exception as e:
             print("ERROR search_channels:", e)
             return []
@@ -171,10 +173,12 @@ def index():
 
     if request.method == 'POST':
 
+        if not tool.is_ready():
+            return "<h2 style='color:red;'>❌ API KEY NOT SET PROPERLY</h2>"
+
         url = request.form.get('url', '').strip()
         keyword = request.form['keyword']
 
-        # CASE 1: only keyword
         if url == "":
             channels = tool.search_channels(keyword)
             videos = tool.search_global_videos(keyword)
@@ -188,7 +192,6 @@ def index():
                 ccount=len(channels)
             )
 
-        # CASE 2: channel + keyword
         channel_id = tool.resolve_channel(url)
 
         if not channel_id:
