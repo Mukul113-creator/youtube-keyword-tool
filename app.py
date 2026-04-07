@@ -1,14 +1,16 @@
 from flask import Flask, request, render_template_string
 import googleapiclient.discovery
 import re
+import os
+from dotenv import load_dotenv
 import sqlite3
 from datetime import datetime
 
+load_dotenv()
 app = Flask(__name__)
 app.secret_key = 'your-secret-2024'
 
-# ✅ API KEY (UPDATED)
-API_KEY = "AIzaSyA5LctWsGE8f2bhACTrYLLazFvEoO_l00k"
+API_KEY = os.getenv('YOUTUBE_API_KEY')
 
 # LIMITS
 GOOGLE_FREE_QUOTA = 10000
@@ -50,10 +52,12 @@ class YouTubeTool:
             "youtube", "v3", developerKey=api_key
         )
 
+    # Extract video ID
     def extract_video_id(self, url):
         match = re.search(r'(?:v=|\/)([0-9A-Za-z_-]{11})', url)
         return match.group(1) if match else None
 
+    # Get channel from video
     def get_channel_from_video(self, video_id):
         try:
             res = self.youtube.videos().list(
@@ -63,6 +67,7 @@ class YouTubeTool:
         except:
             return None
 
+    # 🔥 UNIVERSAL RESOLVER
     def resolve_channel(self, input_text):
         input_text = input_text.strip()
 
@@ -73,6 +78,7 @@ class YouTubeTool:
         if video_id:
             return self.get_channel_from_video(video_id)
 
+        # @handle or channel name
         try:
             res = self.youtube.search().list(
                 part="snippet",
@@ -85,6 +91,7 @@ class YouTubeTool:
         except:
             return None
 
+    # 🔍 SEARCH VIDEOS (PAGINATION)
     def search_videos(self, channel_id, keyword):
         try:
             videos = []
@@ -103,16 +110,14 @@ class YouTubeTool:
                     pageToken=next_page_token
                 ).execute()
 
-                for video in res.get('items', []):
+                items = res.get('items', [])
+
+                for video in items:
                     title = video['snippet']['title'].lower()
                     desc = video['snippet']['description'].lower()
 
                     if re.search(pattern, title) or re.search(pattern, desc):
-                        videos.append({
-                            "videoId": video["id"]["videoId"],
-                            "title": video["snippet"]["title"],
-                            "channelTitle": video["snippet"]["channelTitle"]
-                        })
+                        videos.append(video)
 
                 next_page_token = res.get('nextPageToken')
 
@@ -125,33 +130,34 @@ class YouTubeTool:
             print("ERROR:", e)
             return []
 
-    def search_videos_global(self, keyword):
+    # 🆕 SEARCH CHANNELS BY KEYWORD
+    def search_channels_by_keyword(self, keyword):
         try:
-            videos = []
+            channels = []
             next_page_token = None
 
             while True:
                 res = self.youtube.search().list(
-                    part="snippet,id",
+                    part="snippet",
                     q=keyword,
-                    type="video",
+                    type="channel",
                     maxResults=50,
                     pageToken=next_page_token
                 ).execute()
 
                 for item in res.get("items", []):
-                    videos.append({
-                        "videoId": item["id"]["videoId"],
+                    channels.append({
+                        "channelId": item["snippet"]["channelId"],
                         "title": item["snippet"]["title"],
-                        "channelTitle": item["snippet"]["channelTitle"]
+                        "description": item["snippet"]["description"]
                     })
 
                 next_page_token = res.get("nextPageToken")
 
-                if not next_page_token or len(videos) >= 100:
+                if not next_page_token or len(channels) >= 100:
                     break
 
-            return videos
+            return channels
 
         except Exception as e:
             print("ERROR:", e)
@@ -171,16 +177,18 @@ def index():
         url = request.form.get('url', '').strip()
         keyword = request.form['keyword']
 
+        # 🆕 CASE 1: Only keyword → show channels
         if url == "":
-            videos = tool.search_videos_global(keyword)
+            channels = tool.search_channels_by_keyword(keyword)
             record_usage(ip)
 
-            return render_template_string(GLOBAL_RESULTS_HTML,
-                videos=videos,
+            return render_template_string(CHANNELS_HTML,
+                channels=channels,
                 keyword=keyword,
-                count=len(videos)
+                count=len(channels)
             )
 
+        # ✅ CASE 2: URL + keyword → show videos
         channel_id = tool.resolve_channel(url)
 
         if not channel_id:
@@ -206,7 +214,7 @@ INDEX_HTML = '''
 
 <form method="POST">
 <input name="url" placeholder="Channel URL / @handle (optional)"><br><br>
-<input name="keyword" placeholder="Search keyword" required><br><br>
+<input name="keyword" placeholder="Keyword" required><br><br>
 <button type="submit">Search</button>
 </form>
 
@@ -214,34 +222,31 @@ INDEX_HTML = '''
 '''
 
 RESULTS_HTML = '''
-<h2>🎬 {{ count }} Videos Found (Channel)</h2>
+<h2>🎬 {{ count }} Videos Found</h2>
 <p>Keyword: <b>{{ keyword }}</b></p>
 
 {% for video in videos %}
 <div style="margin-bottom:20px;">
-<a href="https://youtube.com/watch?v={{ video.videoId }}" target="_blank">
-{{ video.title }}
+<a href="https://youtube.com/watch?v={{ video.id.videoId }}" target="_blank">
+{{ video.snippet.title }}
 </a>
-<p>📺 {{ video.channelTitle }}</p>
 </div>
 {% endfor %}
 
 <br><a href="/">🔙 Back</a>
 '''
 
-GLOBAL_RESULTS_HTML = '''
-<h2>🔍 {{ count }} Videos Found (Global Search)</h2>
+CHANNELS_HTML = '''
+<h2>📺 {{ count }} Channels Found</h2>
 <p>Keyword: <b>{{ keyword }}</b></p>
 
-{% for video in videos %}
-<div style="margin-bottom:20px; padding:10px; border:1px solid #ddd;">
-    
-    <a href="https://youtube.com/watch?v={{ video.videoId }}" target="_blank">
-        <h3>{{ video.title }}</h3>
+{% for ch in channels %}
+<div style="margin-bottom:20px; padding:10px; border:1px solid #ccc;">
+    <h3>{{ ch.title }}</h3>
+    <p>{{ ch.description }}</p>
+    <a href="https://youtube.com/channel/{{ ch.channelId }}" target="_blank">
+        Visit Channel
     </a>
-
-    <p>📺 Channel: <b>{{ video.channelTitle }}</b></p>
-
 </div>
 {% endfor %}
 
