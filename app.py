@@ -10,7 +10,7 @@ load_dotenv()
 app = Flask(__name__)
 app.secret_key = 'your-secret-2024'
 
-API_KEY = os.getenv('YOUTUBE_API_KEY')
+API_KEY = os.getenv('AIzaSyC7BRFy3rMbOI3H8Iokf6i--COcSu-XOaU')
 
 # LIMITS
 GOOGLE_FREE_QUOTA = 10000
