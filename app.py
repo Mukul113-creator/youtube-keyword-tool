@@ -8,7 +8,6 @@ import os
 app = Flask(__name__)
 app.secret_key = 'your-secret-2024'
 
-# ✅ API KEY FROM ENV
 API_KEY = os.getenv("API_KEY")
 
 # ---------------- DATABASE ----------------
@@ -59,11 +58,9 @@ class YouTubeTool:
     def resolve_channel(self, input_text):
         input_text = input_text.strip()
 
-        # Channel ID
         if input_text.startswith("UC"):
             return input_text
 
-        # Handle
         if "@" in input_text:
             handle = input_text.split("@")[-1].split("?")[0]
             res = self.youtube.search().list(
@@ -74,16 +71,13 @@ class YouTubeTool:
             ).execute()
             return res['items'][0]['snippet']['channelId']
 
-        # Channel URL
         if "youtube.com/channel/" in input_text:
             return input_text.split("channel/")[1].split("/")[0]
 
-        # Video URL
         video_id = self.extract_video_id(input_text)
         if video_id:
             return self.get_channel_from_video(video_id)
 
-        # Keyword → channel
         res = self.youtube.search().list(
             part="snippet",
             q=input_text,
@@ -132,10 +126,9 @@ class YouTubeTool:
 
         return channels
 
-    # 🔥 FIXED CHANNEL SEARCH (ACCURATE COUNT)
+    # 🔥 ONLY FIX APPLIED HERE (STRICT MATCH)
     def search_videos(self, channel_id, keyword):
         try:
-            # Step 1: Get uploads playlist
             res = self.youtube.channels().list(
                 part="contentDetails",
                 id=channel_id
@@ -147,7 +140,8 @@ class YouTubeTool:
             next_page_token = None
             keyword_lower = keyword.lower()
 
-            # Step 2: Loop all videos
+            pattern = r'\b' + re.escape(keyword_lower) + r'\b'
+
             while True:
                 playlist_res = self.youtube.playlistItems().list(
                     part="snippet",
@@ -158,9 +152,9 @@ class YouTubeTool:
 
                 for item in playlist_res.get("items", []):
                     title = item['snippet']['title'].lower()
-                    desc = item['snippet']['description'].lower()
 
-                    if keyword_lower in title or keyword_lower in desc:
+                    # ✅ STRICT MATCH (FIX)
+                    if re.search(pattern, title):
                         videos.append({
                             "id": {"videoId": item['snippet']['resourceId']['videoId']},
                             "snippet": item['snippet']
@@ -190,7 +184,6 @@ def index():
         url = request.form.get('url', '').strip()
         keyword = request.form['keyword']
 
-        # ✅ CASE 1: ONLY KEYWORD
         if url == "":
             videos = tool.search_global_videos(keyword)
             channels = tool.search_channels(keyword)
@@ -204,7 +197,6 @@ def index():
                 keyword=keyword
             )
 
-        # ✅ CASE 2: CHANNEL + KEYWORD
         channel_id = tool.resolve_channel(url)
 
         if not channel_id:
