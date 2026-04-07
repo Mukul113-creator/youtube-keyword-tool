@@ -1,14 +1,13 @@
 from flask import Flask, request, render_template_string
 import googleapiclient.discovery
 import re
-import os
 import sqlite3
 from datetime import datetime
 
 app = Flask(__name__)
 app.secret_key = 'your-secret-2024'
 
-# ✅ FIXED API KEY
+# ✅ 🔥 PUT YOUR NEW API KEY HERE
 API_KEY = "AIzaSyA5LctWsGE8f2bhACTrYLLazFvEoO_l00k"
 
 # LIMITS
@@ -67,13 +66,34 @@ class YouTubeTool:
     def resolve_channel(self, input_text):
         input_text = input_text.strip()
 
+        # ✅ Channel ID
+        if input_text.startswith("UC"):
+            return input_text
+
+        # ✅ Handle (@username)
+        if "@" in input_text:
+            try:
+                handle = input_text.split("@")[-1].split("?")[0]
+                res = self.youtube.search().list(
+                    part="snippet",
+                    q=handle,
+                    type="channel",
+                    maxResults=1
+                ).execute()
+                return res['items'][0]['snippet']['channelId']
+            except:
+                return None
+
+        # ✅ Channel URL
         if "youtube.com/channel/" in input_text:
             return input_text.split("channel/")[1].split("/")[0]
 
+        # ✅ Video URL
         video_id = self.extract_video_id(input_text)
         if video_id:
             return self.get_channel_from_video(video_id)
 
+        # ✅ Keyword → find channel
         try:
             res = self.youtube.search().list(
                 part="snippet",
@@ -81,77 +101,56 @@ class YouTubeTool:
                 type="channel",
                 maxResults=1
             ).execute()
-
             return res['items'][0]['snippet']['channelId']
         except:
             return None
 
     def search_videos(self, channel_id, keyword):
         try:
-            videos = []
-            next_page_token = None
+            res = self.youtube.search().list(
+                part="snippet,id",
+                channelId=channel_id,
+                q=keyword,
+                type="video",
+                maxResults=50
+            ).execute()
 
-            keyword_lower = keyword.lower()
-            pattern = r'\b' + re.escape(keyword_lower) + r'\b'
-
-            while True:
-                res = self.youtube.search().list(
-                    part="snippet,id",
-                    channelId=channel_id,
-                    q=keyword,
-                    type="video",
-                    maxResults=50,
-                    pageToken=next_page_token
-                ).execute()
-
-                for video in res.get('items', []):
-                    title = video['snippet']['title'].lower()
-                    desc = video['snippet']['description'].lower()
-
-                    if re.search(pattern, title) or re.search(pattern, desc):
-                        videos.append(video)
-
-                next_page_token = res.get('nextPageToken')
-
-                if not next_page_token or len(videos) >= 200:
-                    break
-
-            return videos
-
-        except Exception as e:
-            print("ERROR:", e)
+            return res.get('items', [])
+        except:
             return []
 
-    def search_channels_by_keyword(self, keyword):
+    def search_global_videos(self, keyword):
         try:
+            res = self.youtube.search().list(
+                part="snippet,id",
+                q=keyword,
+                type="video",
+                maxResults=25
+            ).execute()
+
+            return res.get('items', [])
+        except:
+            return []
+
+    def search_channels(self, keyword):
+        try:
+            res = self.youtube.search().list(
+                part="snippet",
+                q=keyword,
+                type="channel",
+                maxResults=10
+            ).execute()
+
             channels = []
-            next_page_token = None
-
-            while True:
-                res = self.youtube.search().list(
-                    part="snippet",
-                    q=keyword,
-                    type="channel",
-                    maxResults=50,
-                    pageToken=next_page_token
-                ).execute()
-
-                for item in res.get("items", []):
-                    channels.append({
-                        "channelId": item["snippet"]["channelId"],
-                        "title": item["snippet"]["title"],
-                        "description": item["snippet"]["description"]
-                    })
-
-                next_page_token = res.get("nextPageToken")
-
-                if not next_page_token or len(channels) >= 100:
-                    break
+            for item in res.get("items", []):
+                channels.append({
+                    "channelId": item["snippet"]["channelId"],
+                    "title": item["snippet"]["title"],
+                    "description": item["snippet"]["description"]
+                })
 
             return channels
-
-        except Exception as e:
-            print("ERROR:", e)
+        except:
             return []
 
 tool = YouTubeTool(API_KEY)
@@ -168,16 +167,21 @@ def index():
         url = request.form.get('url', '').strip()
         keyword = request.form['keyword']
 
+        # ✅ CASE 1: Only keyword
         if url == "":
-            channels = tool.search_channels_by_keyword(keyword)
+            channels = tool.search_channels(keyword)
+            videos = tool.search_global_videos(keyword)
             record_usage(ip)
 
-            return render_template_string(CHANNELS_HTML,
+            return render_template_string(GLOBAL_HTML,
                 channels=channels,
+                videos=videos,
                 keyword=keyword,
-                count=len(channels)
+                vcount=len(videos),
+                ccount=len(channels)
             )
 
+        # ✅ CASE 2: Channel + keyword
         channel_id = tool.resolve_channel(url)
 
         if not channel_id:
@@ -202,7 +206,7 @@ INDEX_HTML = '''
 <h1>YouTube Keyword Tool</h1>
 
 <form method="POST">
-<input name="url" placeholder="Channel URL / @handle (optional)"><br><br>
+<input name="url" placeholder="Channel URL / @handle / Channel ID (optional)"><br><br>
 <input name="keyword" placeholder="Keyword" required><br><br>
 <button type="submit">Search</button>
 </form>
@@ -215,33 +219,41 @@ RESULTS_HTML = '''
 <p>Keyword: <b>{{ keyword }}</b></p>
 
 {% for video in videos %}
-<div style="margin-bottom:20px;">
+<div>
 <a href="https://youtube.com/watch?v={{ video.id.videoId }}" target="_blank">
 {{ video.snippet.title }}
 </a>
 </div>
 {% endfor %}
 
-<br><a href="/">🔙 Back</a>
+<br><a href="/">Back</a>
 '''
 
-CHANNELS_HTML = '''
-<h2>📺 {{ count }} Channels Found</h2>
-<p>Keyword: <b>{{ keyword }}</b></p>
+GLOBAL_HTML = '''
+<h2>🌍 Global Search Results</h2>
 
+<h3>📺 Channels ({{ ccount }})</h3>
 {% for ch in channels %}
-<div style="margin-bottom:20px; padding:10px; border:1px solid #ccc;">
-    <h3>{{ ch.title }}</h3>
-    <p>{{ ch.description }}</p>
-    <a href="https://youtube.com/channel/{{ ch.channelId }}" target="_blank">
-        Visit Channel
-    </a>
+<div>
+<b>{{ ch.title }}</b><br>
+<a href="https://youtube.com/channel/{{ ch.channelId }}" target="_blank">Visit</a>
 </div>
 {% endfor %}
 
-<br><a href="/">🔙 Back</a>
+<hr>
+
+<h3>🎬 Videos ({{ vcount }})</h3>
+{% for v in videos %}
+<div>
+<a href="https://youtube.com/watch?v={{ v.id.videoId }}" target="_blank">
+{{ v.snippet.title }}
+</a>
+</div>
+{% endfor %}
+
+<br><a href="/">Back</a>
 '''
 
 # ---------------- RUN ----------------
 if __name__ == '__main__':
-    app.run()
+    app.run(debug=True)
