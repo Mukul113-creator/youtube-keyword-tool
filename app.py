@@ -2,15 +2,14 @@ from flask import Flask, request, render_template_string
 import googleapiclient.discovery
 import re
 import os
-from dotenv import load_dotenv
 import sqlite3
 from datetime import datetime
 
-load_dotenv()
 app = Flask(__name__)
 app.secret_key = 'your-secret-2024'
 
-API_KEY = os.getenv('AIzaSyA5LctWsGE8f2bhACTrYLLazFvEoO_l00k')
+# ✅ FIXED API KEY
+API_KEY = "AIzaSyA5LctWsGE8f2bhACTrYLLazFvEoO_l00k"
 
 # LIMITS
 GOOGLE_FREE_QUOTA = 10000
@@ -47,17 +46,15 @@ def record_usage(ip):
 
 # ---------------- YOUTUBE TOOL ----------------
 class YouTubeTool:
-    def __init__(self, AIzaSyA5LctWsGE8f2bhACTrYLLazFvEoO_l00k):
+    def __init__(self, api_key):
         self.youtube = googleapiclient.discovery.build(
-            "youtube", "v3", developerKey=AIzaSyA5LctWsGE8f2bhACTrYLLazFvEoO_l00k
+            "youtube", "v3", developerKey=api_key
         )
 
-    # Extract video ID
     def extract_video_id(self, url):
         match = re.search(r'(?:v=|\/)([0-9A-Za-z_-]{11})', url)
         return match.group(1) if match else None
 
-    # Get channel from video
     def get_channel_from_video(self, video_id):
         try:
             res = self.youtube.videos().list(
@@ -67,7 +64,6 @@ class YouTubeTool:
         except:
             return None
 
-    # 🔥 UNIVERSAL RESOLVER
     def resolve_channel(self, input_text):
         input_text = input_text.strip()
 
@@ -78,7 +74,6 @@ class YouTubeTool:
         if video_id:
             return self.get_channel_from_video(video_id)
 
-        # @handle or channel name
         try:
             res = self.youtube.search().list(
                 part="snippet",
@@ -91,7 +86,6 @@ class YouTubeTool:
         except:
             return None
 
-    # 🔍 SEARCH VIDEOS (PAGINATION)
     def search_videos(self, channel_id, keyword):
         try:
             videos = []
@@ -110,9 +104,7 @@ class YouTubeTool:
                     pageToken=next_page_token
                 ).execute()
 
-                items = res.get('items', [])
-
-                for video in items:
+                for video in res.get('items', []):
                     title = video['snippet']['title'].lower()
                     desc = video['snippet']['description'].lower()
 
@@ -130,7 +122,6 @@ class YouTubeTool:
             print("ERROR:", e)
             return []
 
-    # 🆕 SEARCH CHANNELS BY KEYWORD
     def search_channels_by_keyword(self, keyword):
         try:
             channels = []
@@ -177,7 +168,6 @@ def index():
         url = request.form.get('url', '').strip()
         keyword = request.form['keyword']
 
-        # 🆕 CASE 1: Only keyword → show channels
         if url == "":
             channels = tool.search_channels_by_keyword(keyword)
             record_usage(ip)
@@ -188,7 +178,6 @@ def index():
                 count=len(channels)
             )
 
-        # ✅ CASE 2: URL + keyword → show videos
         channel_id = tool.resolve_channel(url)
 
         if not channel_id:
@@ -255,4 +244,4 @@ CHANNELS_HTML = '''
 
 # ---------------- RUN ----------------
 if __name__ == '__main__':
-    app.run(debug=True)
+    app.run()
