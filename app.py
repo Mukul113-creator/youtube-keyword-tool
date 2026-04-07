@@ -6,6 +6,7 @@ from dotenv import load_dotenv
 import sqlite3
 from datetime import datetime
 
+# Load environment variables
 load_dotenv()
 app = Flask(__name__)
 app.secret_key = 'your-secret-2024'
@@ -16,7 +17,7 @@ API_KEY = os.getenv('YOUTUBE_API_KEY')
 if not API_KEY:
     raise ValueError("❌ YOUTUBE_API_KEY is missing! Add it in environment variables")
 
-# LIMITS
+# Quota limits
 GOOGLE_FREE_QUOTA = 10000
 SEARCHES_PER_QUERY = 100
 FREE_SEARCHES_DAY = GOOGLE_FREE_QUOTA // SEARCHES_PER_QUERY
@@ -64,10 +65,12 @@ class YouTubeTool:
             cache_discovery=False
         )
 
+    # Extract video ID from URL
     def extract_video_id(self, url):
         match = re.search(r'(?:v=|\/)([0-9A-Za-z_-]{11})', url)
         return match.group(1) if match else None
 
+    # Get channel ID from video ID
     def get_channel_from_video(self, video_id):
         try:
             res = self.youtube.videos().list(
@@ -75,9 +78,10 @@ class YouTubeTool:
             ).execute()
             return res['items'][0]['snippet']['channelId']
         except Exception as e:
-            print("ERROR:", e)
+            print("ERROR getting channel from video:", e)
             return None
 
+    # Resolve channel from URL, video, or name
     def resolve_channel(self, input_text):
         input_text = input_text.strip()
         if "youtube.com/channel/" in input_text:
@@ -94,17 +98,18 @@ class YouTubeTool:
                 type="channel",
                 maxResults=1
             ).execute()
-            return res['items'][0]['snippet']['channelId']
+            if res.get('items'):
+                return res['items'][0]['snippet']['channelId']
+            return None
         except Exception as e:
-            print("ERROR:", e)
+            print("ERROR resolving channel:", e)
             return None
 
-    # ✅ CHANNEL SEARCH
+    # Channel-specific search
     def search_videos(self, channel_id, keyword):
         try:
             videos = []
             next_page_token = None
-
             while True:
                 res = self.youtube.search().list(
                     part="snippet",
@@ -127,27 +132,28 @@ class YouTubeTool:
                 next_page_token = res.get('nextPageToken')
                 if not next_page_token or len(videos) >= 200:
                     break
-
             return videos
-
         except Exception as e:
-            print("ERROR:", e)
+            print("ERROR searching channel videos:", e)
             return []
 
-    # ✅ GLOBAL SEARCH
+    # Global search
     def search_videos_global(self, keyword):
         try:
             videos = []
             next_page_token = None
-
             while True:
                 res = self.youtube.search().list(
                     part="snippet",
                     q=keyword,
                     type="video",
                     maxResults=50,
-                    pageToken=next_page_token
+                    pageToken=next_page_token,
+                    regionCode="IN",    # <-- fix for region
+                    safeSearch="none"   # <-- disable filtering
                 ).execute()
+
+                print("DEBUG: Global search API returned", len(res.get("items", [])), "items")
 
                 for item in res.get("items", []):
                     video_id = item["id"].get("videoId")
@@ -161,11 +167,9 @@ class YouTubeTool:
                 next_page_token = res.get("nextPageToken")
                 if not next_page_token or len(videos) >= 100:
                     break
-
             return videos
-
         except Exception as e:
-            print("ERROR:", e)
+            print("ERROR global search:", e)
             return []
 
 tool = YouTubeTool(API_KEY)
@@ -184,25 +188,23 @@ def index():
         if not keyword:
             return "<h2>❌ Enter keyword</h2>"
 
-        # ✅ GLOBAL SEARCH
+        # Global search if no URL
         if url == "":
             videos = tool.search_videos_global(keyword)
             record_usage(ip)
-
             return render_template_string(GLOBAL_RESULTS_HTML,
                 videos=videos,
                 keyword=keyword,
                 count=len(videos)
             )
 
-        # ✅ CHANNEL SEARCH
+        # Channel search
         channel_id = tool.resolve_channel(url)
         if not channel_id:
             return '<h2 style="color:red;">❌ Invalid Input</h2>'
 
         videos = tool.search_videos(channel_id, keyword)
         record_usage(ip)
-
         return render_template_string(RESULTS_HTML,
             videos=videos,
             keyword=keyword,
