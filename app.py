@@ -215,57 +215,193 @@ def index():
 
 # ---------------- HTML ----------------
 INDEX_HTML = '''
-<h1>YouTube Keyword Tool</h1>
+<!DOCTYPE html>
+<html>
+<head>
+<title>YouTube Keyword Tool</title>
+<style>
+body {
+    font-family: Arial;
+    background: #0f0f0f;
+    color: white;
+    text-align: center;
+}
+
+.container {
+    margin-top: 80px;
+}
+
+input {
+    padding: 12px;
+    width: 300px;
+    margin: 10px;
+    border-radius: 8px;
+    border: none;
+}
+
+button {
+    padding: 12px 25px;
+    background: red;
+    color: white;
+    border: none;
+    border-radius: 8px;
+    cursor: pointer;
+}
+
+button:hover {
+    background: #cc0000;
+}
+</style>
+</head>
+
+<body>
+
+<div class="container">
+<h1>🎬 YouTube Keyword Tool</h1>
 
 <form method="POST">
-<input name="url" placeholder="Channel URL / @handle / Channel ID (optional)"><br><br>
-<input name="keyword" placeholder="Keyword" required><br><br>
+<input name="url" placeholder="Channel URL / @handle (optional)"><br>
+<input name="keyword" placeholder="Enter keyword" required><br>
 <button type="submit">Search</button>
 </form>
 
 <p>Usage: {{ usage }}</p>
+</div>
+
+</body>
+</html>
 '''
 
 GLOBAL_HTML = '''
+<!DOCTYPE html>
+<html>
+<head>
+<style>
+body {
+    background: #0f0f0f;
+    color: white;
+    font-family: Arial;
+}
+
+.container {
+    width: 80%;
+    margin: auto;
+}
+
+.card {
+    background: #1f1f1f;
+    padding: 15px;
+    margin: 10px 0;
+    border-radius: 10px;
+    transition: 0.3s;
+}
+
+.card:hover {
+    transform: scale(1.02);
+    background: #2a2a2a;
+}
+
+a {
+    color: #3ea6ff;
+    text-decoration: none;
+}
+</style>
+</head>
+
+<body>
+
+<div class="container">
+
 <h2>🌍 Results for "{{ keyword }}"</h2>
 
-<h3>🎬 Videos Found: {{ vcount }}</h3>
+<h3>🎬 Videos ({{ vcount }})</h3>
+
 {% for v in videos %}
-<div>
+<div class="card">
 <a href="https://youtube.com/watch?v={{ v.id.videoId }}" target="_blank">
 <b>{{ v.snippet.title }}</b>
 </a><br>
 📺 {{ v.snippet.channelTitle }}
-</div><br>
+</div>
 {% endfor %}
 
 <hr>
 
 <h3>📺 Channels ({{ ccount }})</h3>
+
 {% for ch in channels %}
-<div>
+<div class="card">
 <b>{{ ch.title }}</b><br>
-<a href="https://youtube.com/channel/{{ ch.channelId }}" target="_blank">Visit</a>
+<a href="https://youtube.com/channel/{{ ch.channelId }}" target="_blank">Visit Channel</a>
 </div>
 {% endfor %}
 
-<br><a href="/">Back</a>
+<br><a href="/">⬅ Back</a>
+
+</div>
+
+</body>
+</html>
 '''
 
 RESULT_HTML = '''
+<!DOCTYPE html>
+<html>
+<head>
+<style>
+body {
+    background: #0f0f0f;
+    color: white;
+    font-family: Arial;
+}
+
+.container {
+    width: 80%;
+    margin: auto;
+}
+
+.card {
+    background: #1f1f1f;
+    padding: 15px;
+    margin: 10px 0;
+    border-radius: 10px;
+    transition: 0.3s;
+}
+
+.card:hover {
+    transform: scale(1.02);
+    background: #2a2a2a;
+}
+
+a {
+    color: #3ea6ff;
+    text-decoration: none;
+}
+</style>
+</head>
+
+<body>
+
+<div class="container">
+
 <h2>📊 Channel Results</h2>
 <h3>🎬 Videos Found: {{ count }}</h3>
 <p>Keyword: <b>{{ keyword }}</b></p>
 
 {% for v in videos %}
-<div>
+<div class="card">
 <a href="https://youtube.com/watch?v={{ v.id.videoId }}" target="_blank">
 <b>{{ v.snippet.title }}</b>
 </a>
-</div><br>
+</div>
 {% endfor %}
 
-<br><a href="/">Back</a>
+<br><a href="/">⬅ Back</a>
+
+</div>
+
+</body>
+</html>
 '''
 
 # ---------------- RUN ----------------
