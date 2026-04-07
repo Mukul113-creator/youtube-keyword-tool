@@ -12,7 +12,7 @@ app.secret_key = 'your-secret-2024'
 
 API_KEY = os.getenv('YOUTUBE_API_KEY')
 
-# ✅ IMPORTANT CHECK
+# ✅ CHECK API KEY
 if not API_KEY:
     raise ValueError("❌ YOUTUBE_API_KEY is missing! Add it in environment variables")
 
@@ -45,7 +45,12 @@ def record_usage(ip):
     conn = sqlite3.connect('usage.db')
     c = conn.cursor()
     today = datetime.now().strftime('%Y-%m-%d')
-    c.execute("INSERT INTO usage (ip, date) VALUES (?, ?)", (ip, today))
+    c.execute("SELECT count FROM usage WHERE ip=? AND date=?", (ip, today))
+    row = c.fetchone()
+    if row:
+        c.execute("UPDATE usage SET count=count+1 WHERE ip=? AND date=?", (ip, today))
+    else:
+        c.execute("INSERT INTO usage (ip, date, count) VALUES (?, ?, 1)", (ip, today))
     conn.commit()
     conn.close()
 
@@ -56,7 +61,7 @@ class YouTubeTool:
             "youtube",
             "v3",
             developerKey=api_key,
-            cache_discovery=False  # ✅ FIX
+            cache_discovery=False
         )
 
     def extract_video_id(self, url):
@@ -75,7 +80,6 @@ class YouTubeTool:
 
     def resolve_channel(self, input_text):
         input_text = input_text.strip()
-
         if "youtube.com/channel/" in input_text:
             return input_text.split("channel/")[1].split("/")[0]
 
@@ -90,7 +94,6 @@ class YouTubeTool:
                 type="channel",
                 maxResults=1
             ).execute()
-
             return res['items'][0]['snippet']['channelId']
         except Exception as e:
             print("ERROR:", e)
@@ -104,7 +107,7 @@ class YouTubeTool:
 
             while True:
                 res = self.youtube.search().list(
-                    part="snippet,id",
+                    part="snippet",
                     channelId=channel_id,
                     q=keyword,
                     type="video",
@@ -113,14 +116,15 @@ class YouTubeTool:
                 ).execute()
 
                 for video in res.get('items', []):
-                    videos.append({
-                        "videoId": video["id"]["videoId"],
-                        "title": video["snippet"]["title"],
-                        "channelTitle": video["snippet"]["channelTitle"]
-                    })
+                    video_id = video["id"].get("videoId")
+                    if video_id:
+                        videos.append({
+                            "videoId": video_id,
+                            "title": video["snippet"]["title"],
+                            "channelTitle": video["snippet"]["channelTitle"]
+                        })
 
                 next_page_token = res.get('nextPageToken')
-
                 if not next_page_token or len(videos) >= 200:
                     break
 
@@ -138,7 +142,7 @@ class YouTubeTool:
 
             while True:
                 res = self.youtube.search().list(
-                    part="snippet,id",
+                    part="snippet",
                     q=keyword,
                     type="video",
                     maxResults=50,
@@ -146,14 +150,15 @@ class YouTubeTool:
                 ).execute()
 
                 for item in res.get("items", []):
-                    videos.append({
-                        "videoId": item["id"]["videoId"],
-                        "title": item["snippet"]["title"],
-                        "channelTitle": item["snippet"]["channelTitle"]
-                    })
+                    video_id = item["id"].get("videoId")
+                    if video_id:
+                        videos.append({
+                            "videoId": video_id,
+                            "title": item["snippet"]["title"],
+                            "channelTitle": item["snippet"]["channelTitle"]
+                        })
 
                 next_page_token = res.get("nextPageToken")
-
                 if not next_page_token or len(videos) >= 100:
                     break
 
@@ -174,7 +179,7 @@ def index():
 
     if request.method == 'POST':
         url = request.form.get('url', '').strip()
-        keyword = request.form['keyword']
+        keyword = request.form.get('keyword', '').strip()
 
         if not keyword:
             return "<h2>❌ Enter keyword</h2>"
@@ -192,7 +197,6 @@ def index():
 
         # ✅ CHANNEL SEARCH
         channel_id = tool.resolve_channel(url)
-
         if not channel_id:
             return '<h2 style="color:red;">❌ Invalid Input</h2>'
 
@@ -228,7 +232,7 @@ RESULTS_HTML = '''
 
 {% for v in videos %}
 <div>
-<a href="https://youtube.com/watch?v={{ v.videoId }}">{{ v.title }}</a>
+<a href="https://youtube.com/watch?v={{ v.videoId }}" target="_blank">{{ v.title }}</a>
 <p>{{ v.channelTitle }}</p>
 </div>
 {% endfor %}
@@ -243,7 +247,7 @@ GLOBAL_RESULTS_HTML = '''
 
 {% for v in videos %}
 <div>
-<a href="https://youtube.com/watch?v={{ v.videoId }}">{{ v.title }}</a>
+<a href="https://youtube.com/watch?v={{ v.videoId }}" target="_blank">{{ v.title }}</a>
 <p>{{ v.channelTitle }}</p>
 </div>
 {% endfor %}
