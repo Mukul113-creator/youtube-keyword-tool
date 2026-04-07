@@ -1,22 +1,13 @@
 from flask import Flask, request, render_template_string
 import googleapiclient.discovery
 import re
-import os
-from dotenv import load_dotenv
 import sqlite3
 from datetime import datetime
 
-load_dotenv()
 app = Flask(__name__)
-app.secret_key = 'your-secret-2024'
 
-# ✅ YOUR NEW FRESH API KEY
+# ✅ YOUR NEW API KEY - DIRECTLY HERE (No .env needed)
 API_KEY = "AIzaSyA5LctWsGE8f2bhACTrYLLazFvEoO_l00k"
-
-# Quota limits
-GOOGLE_FREE_QUOTA = 10000
-SEARCHES_PER_QUERY = 100
-FREE_SEARCHES_DAY = GOOGLE_FREE_QUOTA // SEARCHES_PER_QUERY
 
 # ---------------- DATABASE ----------------
 def init_db():
@@ -51,7 +42,7 @@ def record_usage(ip):
     conn.commit()
     conn.close()
 
-# ---------------- YOUTUBE TOOL (YOUR ORIGINAL) ----------------
+# ---------------- YOUTUBE TOOL ----------------
 class YouTubeTool:
     def __init__(self, api_key):
         self.youtube = googleapiclient.discovery.build(
@@ -69,7 +60,6 @@ class YouTubeTool:
         except:
             return None
 
-    # 🔥 UNIVERSAL CHANNEL RESOLVER (YOUR CODE)
     def resolve_channel(self, input_text):
         input_text = input_text.strip()
         if "youtube.com/channel/" in input_text:
@@ -92,7 +82,6 @@ class YouTubeTool:
         except:
             return None
 
-    # CHANNEL-SPECIFIC SEARCH (YOUR IMPROVED VERSION)
     def search_videos(self, channel_id, keyword):
         try:
             videos = []
@@ -128,7 +117,6 @@ class YouTubeTool:
             print("ERROR:", e)
             return []
 
-    # GLOBAL SEARCH (YOUR WORKING VERSION)
     def search_videos_global(self, keyword):
         try:
             videos = []
@@ -151,7 +139,7 @@ class YouTubeTool:
                         "channelTitle": item["snippet"]["channelTitle"]
                     })
 
-                next_page_token = res.get("nextPageToken")
+                next_page_token = res.get('nextPageToken')
                 if not next_page_token or len(videos) >= 100:
                     break
 
@@ -162,7 +150,12 @@ class YouTubeTool:
 
 tool = YouTubeTool(API_KEY)
 
-# ---------------- ROUTES (YOUR ORIGINAL LOGIC) ----------------
+# Quota
+GOOGLE_FREE_QUOTA = 10000
+SEARCHES_PER_QUERY = 100
+FREE_SEARCHES_DAY = GOOGLE_FREE_QUOTA // SEARCHES_PER_QUERY
+
+# ---------------- ROUTES ----------------
 @app.route('/', methods=['GET', 'POST'])
 def index():
     ip = request.remote_addr
@@ -176,7 +169,7 @@ def index():
         if not keyword:
             return "<h2 style='color:red;'>❌ Enter keyword</h2>"
 
-        # ✅ GLOBAL SEARCH if no URL (YOUR LOGIC)
+        # Global search if no URL
         if url == "":
             videos = tool.search_videos_global(keyword)
             record_usage(ip)
@@ -186,7 +179,7 @@ def index():
                 count=len(videos)
             )
 
-        # ✅ CHANNEL SEARCH (YOUR LOGIC)
+        # Channel search
         channel_id = tool.resolve_channel(url)
         if not channel_id:
             return '<h2 style="color:red;">❌ Invalid Input</h2>'
@@ -199,60 +192,90 @@ def index():
             count=len(videos)
         )
 
-    return render_template_string(INDEX_HTML, usage=usage, remaining=remaining)
+    return render_template_string(INDEX_HTML,
+        usage=usage,
+        remaining=remaining
+    )
 
-# ---------------- YOUR ORIGINAL HTML ----------------
+# ---------------- HTML ----------------
 INDEX_HTML = '''
-<h1>YouTube Keyword Tool</h1>
+<!DOCTYPE html>
+<html><head><title>YouTube Keyword Tool</title>
+<style>body{font-family:Arial,sans-serif;max-width:800px;margin:50px auto;padding:20px;background:#f5f5f5;}
+input{width:100%;padding:15px;margin:10px 0;font-size:16px;border:1px solid #ddd;border-radius:8px;}
+button{background:#ff4444;color:white;padding:15px 30px;border:none;border-radius:8px;font-size:16px;cursor:pointer;}
+button:hover{background:#cc3333;}
+.stats{background:#e8f4f8;padding:15px;border-radius:8px;margin:20px 0;}
+h1{color:#333;text-align:center;}</style></head><body>
+<h1>🔍 YouTube Keyword Tool</h1>
 
 <form method="POST">
-<input name="url" placeholder="Channel URL / @handle (optional)"><br><br>
-<input name="keyword" placeholder="Keyword" required><br><br>
-<button type="submit">Search</button>
+<input name="url" placeholder="Channel URL / @handle (optional)"><br>
+<input name="keyword" placeholder="Keyword" required><br>
+<button type="submit">🚀 Search</button>
 </form>
 
-<p>Usage: {{ usage }} | Remaining: {{ remaining }}</p>
+<div class="stats">📊 Usage: {{ usage }} | ⏳ Remaining: {{ remaining }}</div>
+</body></html>
 '''
 
 RESULTS_HTML = '''
-<h2>{{ count }} Videos Found (Channel)</h2>
-<p>Keyword: <b>{{ keyword }}</b></p>
+<!DOCTYPE html>
+<html><head><title>{{ count }} Videos</title>
+<style>body{font-family:Arial,sans-serif;max-width:900px;margin:20px auto;padding:20px;background:#f5f5f5;}
+.video{border:1px solid #ddd;margin:20px 0;padding:20px;border-radius:12px;background:white;box-shadow:0 4px 12px rgba(0,0,0,0.1);}
+.title{font-size:18px;font-weight:bold;}
+.title a{color:#d00;text-decoration:none;}
+.title a:hover{text-decoration:underline;}
+.channel{color:#666;font-size:14px;margin-top:8px;}
+.back{background:#0066cc;color:white;padding:12px 24px;text-decoration:none;border-radius:8px;display:inline-block;}
+h2{color:#333;}</style></head><body>
+<h2>🎬 {{ count }} Videos (Channel)</h2>
+<p><strong>{{ keyword }}</strong></p>
 
 {% for v in videos %}
-<div style="margin-bottom:20px;padding:15px;border:1px solid #ddd;border-radius:10px;">
-<a href="https://youtube.com/watch?v={{ v.videoId }}" target="_blank" style="font-size:18px;font-weight:bold;color:#d00;">
-{{ v.title }}
-</a>
-<p style="color:#666;margin-top:5px;">📺 {{ v.channelTitle }}</p>
+<div class="video">
+<div class="title"><a href="https://youtube.com/watch?v={{ v.videoId }}" target="_blank">{{ v.title }}</a></div>
+<div class="channel">📺 {{ v.channelTitle }}</div>
 </div>
 {% endfor %}
 
-<br><a href="/" style="background:#0066cc;color:white;padding:10px 20px;text-decoration:none;border-radius:5px;">🔙 New Search</a>
+<a href="/" class="back">🔙 New Search</a>
+</body></html>
 '''
 
 GLOBAL_RESULTS_HTML = '''
-<h2>🔍 {{ count }} Videos Found (Global Search)</h2>
-<p>Keyword: <b>{{ keyword }}</b></p>
+<!DOCTYPE html>
+<html><head><title>{{ count }} Videos</title>
+<style>body{font-family:Arial,sans-serif;max-width:900px;margin:20px auto;padding:20px;background:#f5f5f5;}
+.video{border:1px solid #ddd;margin:20px 0;padding:20px;border-radius:12px;background:white;box-shadow:0 4px 12px rgba(0,0,0,0.1);}
+.title{font-size:18px;font-weight:bold;}
+.title a{color:#d00;text-decoration:none;}
+.title a:hover{text-decoration:underline;}
+.channel{color:#666;font-size:14px;margin-top:8px;}
+.back{background:#0066cc;color:white;padding:12px 24px;text-decoration:none;border-radius:8px;display:inline-block;}
+h2{color:#333;}</style></head><body>
+<h2>🌍 {{ count }} Videos (Global)</h2>
+<p><strong>{{ keyword }}</strong></p>
 
 {% if count == 0 %}
-<div style="background:#ffebee;padding:30px;border-radius:15px;text-align:center;color:#c53030;">
-<h3>😔 No results</h3>
-<p>Try: "{{ keyword }} video" or "{{ keyword }} official"</p>
+<div style="background:#ffebee;padding:25px;border-radius:12px;text-align:center;color:#c53030;">
+<h3>😔 No results found</h3>
+<p>Try: "{{ keyword }} video" • "{{ keyword }} official" • "{{ keyword }} 2024"</p>
 </div>
 {% endif %}
 
 {% for v in videos %}
-<div style="margin-bottom:20px;padding:15px;border:1px solid #ddd;border-radius:10px;">
-<a href="https://youtube.com/watch?v={{ v.videoId }}" target="_blank" style="font-size:18px;font-weight:bold;color:#d00;">
-{{ v.title }}
-</a>
-<p style="color:#666;margin-top:5px;">📺 {{ v.channelTitle }}</p>
+<div class="video">
+<div class="title"><a href="https://youtube.com/watch?v={{ v.videoId }}" target="_blank">{{ v.title }}</a></div>
+<div class="channel">📺 {{ v.channelTitle }}</div>
 </div>
 {% endfor %}
 
-<br><a href="/" style="background:#0066cc;color:white;padding:10px 20px;text-decoration:none;border-radius:5px;">🔙 New Search</a>
+<a href="/" class="back">🔙 New Search</a>
+</body></html>
 '''
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
-    app.run(host='0.0.0.0', port=port, debug=True)
+    app.run(host='0.0.0.0', port=port, debug=False)
