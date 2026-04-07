@@ -10,7 +10,7 @@ load_dotenv()
 app = Flask(__name__)
 app.secret_key = 'your-secret-2024'
 
-API_KEY = os.getenv('YOUTUBE_API_KEY')
+API_KEY = os.getenv('AIzaSyA5LctWsGE8f2bhACTrYLLazFvEoO_l00k')
 
 # LIMITS
 GOOGLE_FREE_QUOTA = 10000
@@ -47,9 +47,9 @@ def record_usage(ip):
 
 # ---------------- YOUTUBE TOOL ----------------
 class YouTubeTool:
-    def __init__(self, api_key):
+    def __init__(self, AIzaSyA5LctWsGE8f2bhACTrYLLazFvEoO_l00k):
         self.youtube = googleapiclient.discovery.build(
-            "youtube", "v3", developerKey=api_key
+            "youtube", "v3", developerKey=AIzaSyA5LctWsGE8f2bhACTrYLLazFvEoO_l00k
         )
 
     # Extract video ID
